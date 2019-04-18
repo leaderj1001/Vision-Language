@@ -26,3 +26,11 @@
 - answer, groundtruth
 - imageId
 - question
+
+## tqdm Module
+```python
+from tqdm import tqdm
+
+for idx in tqdm(range(100), desc="test", mininterval=1):
+    print(idx)
+```
