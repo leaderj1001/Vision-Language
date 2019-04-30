@@ -7,72 +7,14 @@ from PIL import Image
 import numpy as np
 import cv2
 import pprint
+import mmh3
+import re
+from collections import Counter
 
 import config
 
 args = config.get_args()
-
-
-# def decompose_as_one_hot(in_char, warning=True):
-#     """
-#     If in_char is in ASCII code, it is converted to ASCII code number.
-#     If it is not, convert it to a fixed number.
-#     :param in_char: Each char, example) 'Hello', 'H', 'e', 'l', 'l', 'o'
-#     :return: number
-#     """
-#     if in_char < 128:
-#         result = in_char  # 67~
-#     else:
-#         if warning:
-#             print('Unhandled character:', chr(in_char), in_char)
-#         # unknown character
-#         result = 128 + 1  # for unknown character
-#
-#     return [result]
-#
-#
-# def decompose_string_to_one_hot(string, warning=True):
-#     """
-#     Using decompose_as_one_hot function, convert one_hot mapping
-#     :param string: Each input sentence data
-#     :return: number vector
-#     """
-#     one_hot_string = []
-#     for char in string:
-#         decomposed_char = decompose_as_one_hot(ord(char), warning=warning)
-#         one_hot_string.extend(decomposed_char)
-#
-#     return one_hot_string
-#
-#
-# def data_to_vector(train, test, max_length):
-#     """
-#     If a string is less than maxlen fill it with 0, otherwise, use char to maxlen.
-#     :param max_length:
-#     :return:
-#     """
-#     one_hot_train = np.zeros((len(train), max_length), dtype=np.int32)
-#     one_hot_test = np.zeros((len(test), max_length), dtype=np.int32)
-#
-#     for idx, data in enumerate(train):
-#         length = len(data)
-#         sentence_vector = decompose_string_to_one_hot(data)
-#         if length >= max_length:
-#             length = max_length
-#             one_hot_train[idx, :length] = np.array(sentence_vector)[:length]
-#         else:
-#             one_hot_train[idx, :length] = np.array(sentence_vector)
-#
-#     for idx, data in enumerate(test):
-#         length = len(data)
-#         sentence_vector = decompose_string_to_one_hot(data)
-#         if length >= max_length:
-#             length = max_length
-#             one_hot_test[idx, :length] = np.array(sentence_vector)[:length]
-#         else:
-#             one_hot_test[idx, :length] = np.array(sentence_vector)
-#
-#     return one_hot_train, one_hot_test
+re_sc = re.compile('[\!@#$%\^&\*\(\)-=\[\]\{\}\.,/\?~\+\'"|]')
 
 
 def get_filename():
@@ -98,6 +40,23 @@ def read_image(path):
     # shape, (224, 224, 3)
     resized_image = cv2.resize(image, dsize=(args.image_size, args.image_size), interpolation=cv2.INTER_AREA)
     return resized_image
+
+
+def sentence_to_vec(sentence):
+    sub_sentence = re_sc.sub(' ', sentence).strip().split()
+
+    words = [w.strip() for w in sub_sentence]
+
+    words = [w for w in words if len(w) >= args.min_word_length and len(w) <= args.max_word_length]
+    if not words:
+        return [None] * 2
+    hash_func = lambda x: mmh3.hash(x, seed=17)
+    x = [hash_func(w) % 100001 for w in words]
+    temp = np.zeros(args.max_len, dtype=np.float32)
+
+    for i in range(len(x)):
+        temp[i] = x[i]
+    return temp
 
 
 def load_question():
@@ -129,11 +88,11 @@ def load_data():
 
     for tq in tqdm(train_question, mininterval=1, desc="load train data (image, question, ground truth)"):
         image = read_image(image_data_dict[tq[1]])
-        train.append([image, tq[2], tq[0]])
+        train.append([image, sentence_to_vec(tq[2]), tq[0]])
 
     for teq in tqdm(test_question, mininterval=1, desc="load test data (image, question, ground truth)"):
         image = read_image(image_data_dict[teq[1]])
-        train.append([image, teq[2], teq[0]])
+        train.append([image, sentence_to_vec(teq[2]), teq[0]])
 
     shuffled_train = np.random.shuffle(train)
     shuffled_test = np.random.shuffle(test)

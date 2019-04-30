@@ -1,14 +1,16 @@
 import tensorflow as tf
 import numpy as np
 
+import tensornets as nets
+
 
 class Model(object):
-    def __init__(self, sess, input_size, max_len, char_size, embedding_size):
+    def __init__(self, sess, input_size, max_len, voca_size, embedding_size):
         self.sess = sess
         self.input_size = input_size
 
         self.max_len = max_len
-        self.char_size = char_size
+        self.voca_size = voca_size
         self.embedding_size = embedding_size
         self.hidden_size = 256
 
@@ -19,15 +21,13 @@ class Model(object):
 
     def _build_image_network(self):
         self.image_inputs = tf.placeholder(dtype=tf.float32, shape=[None, self.input_size[0], self.input_size[1], self.input_size[2]], name="image_inputs")
-
-        # Todo
-        # pretrain model 추가
-        self.image_outputs = tf.layers.conv2d(self.image_inputs, filters=[3, 3], kernel_size=[1, 1], strides=[1, 1], activation='relu')
+        self.image_model = nets.resnets.resnet50(self.image_inputs)
+        self.sess.run(self.image_model.pretrained())
 
     def _build_language_network(self):
         self.question_inputs = tf.placeholder(dtype=tf.float32, shape=[None, self.max_len], name="question_inputs")
 
-        char_embedding = tf.get_variable("char_embedding", [self.char_size, self.embedding_size])
+        char_embedding = tf.get_variable("char_embedding", [self.voca_size, self.embedding_size])
         embedding = tf.nn.embedding_lookup(char_embedding, self.question_inputs)
 
         with tf.variable_scope("language_model"):
