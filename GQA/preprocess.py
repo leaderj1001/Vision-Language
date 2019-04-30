@@ -3,8 +3,8 @@ import codecs
 import json
 from tqdm import tqdm
 import os
-from PIL import Image
 import numpy as np
+from PIL import Image
 import cv2
 import pprint
 import mmh3
@@ -70,7 +70,7 @@ def load_question():
                 train_question[line] = [train_data[line]["answer"], train_data[line]["imageId"], train_data[line]["question"]]
 
     test_question = {}
-    for index, test_filename in tqdm(enumerate(test_filenames), mininterval=1, desc="load test question"):
+    for test_filename in tqdm(test_filenames, mininterval=1, desc="load test question"):
         with codecs.open(test_filename, "r", encoding="utf-8", errors="ignore") as f:
             test_data = json.load(f)
             for line in test_data:
@@ -86,21 +86,28 @@ def load_data():
     image_data_dict = get_image_filename()
     train_question, test_question = load_question()
 
-    for tq in tqdm(train_question, mininterval=1, desc="load train data (image, question, ground truth)"):
-        image = read_image(image_data_dict[tq[1]])
-        train.append([image, sentence_to_vec(tq[2]), tq[0]])
+    for tq in tqdm(train_question, mininterval=1, desc="load test data (image, question, ground truth)"):
+        print(tq, train_question[tq], train_question[tq][0], train_question[tq][1], train_question[tq][2])
+        image = read_image(image_data_dict[train_question[tq][1]])
+        vectorized_sentence = sentence_to_vec(train_question[tq][2])
+        train.append([image, vectorized_sentence, train_question[tq][0]])
 
     for teq in tqdm(test_question, mininterval=1, desc="load test data (image, question, ground truth)"):
-        image = read_image(image_data_dict[teq[1]])
-        train.append([image, sentence_to_vec(teq[2]), teq[0]])
+        print(teq, test_question[teq], test_question[teq][0], test_question[teq][1], test_question[teq][2])
+        image = read_image(image_data_dict[test_question[teq][1]])
+        vectorized_sentence = sentence_to_vec(test_question[teq][2])
+        test.append([image, vectorized_sentence, test_question[teq][0]])
 
-    shuffled_train = np.random.shuffle(train)
-    shuffled_test = np.random.shuffle(test)
+    np.random.shuffle(train)
+    np.random.shuffle(test)
 
-    train_x = shuffled_train[:2]
-    train_y = shuffled_train[2]
+    shuffled_train = np.array(train)
+    shuffled_test = np.array(test)
 
-    test_x = shuffled_test[:2]
-    test_y = shuffled_test[2]
+    train_x = np.array(shuffled_train[:2])
+    train_y = np.array(shuffled_train[0][2])
+
+    test_x = np.array(shuffled_test[:2])
+    test_y = np.array(shuffled_test[0][2])
 
     return train_x, train_y, test_x, test_y
