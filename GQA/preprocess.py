@@ -110,11 +110,27 @@ def load_all_question():
 
     train_question = {}
     for index, train_filename in tqdm(enumerate(train_filenames), mininterval=1, desc="load train question"):
-        train_question.update(load_question(train_filename))
+        if os.path.isfile(os.path.splitext(train_filename)[0]+'.pkl') is True:
+            print('load ' + os.path.basename(train_filename).split('.')[0] + '.pkl')
+            question = pickle.load(open(os.path.splitext(train_filename)[0]+'.pkl', 'rb'))
+        else:
+            print('read ', os.path.basename(train_filename))
+            question = load_question(train_filename)
+            f = open(os.path.splitext(train_filename)[0]+'.pkl', 'wb')
+            pickle.dump(question, f)
+            f.close()
+        train_question.update(question)
 
     test_question = {}
     for index, test_filename in tqdm(enumerate(test_filenames), mininterval=1, desc="load test question"):
-        test_question.update(load_question(test_filename))
+        if os.path.isfile(os.path.splitext(test_filename)[0]+'.pkl') is True:
+            question = pickle.load(open(os.path.splitext(test_filename)[0]+'.pkl', 'rb'))
+        else:
+            question = load_question(test_filename)
+            f = open(os.path.splitext(test_filename)[0]+'.pkl', 'wb')
+            pickle.dump(question, f)
+            f.close()
+        test_question.update(question)
 
     return train_question, test_question
 
