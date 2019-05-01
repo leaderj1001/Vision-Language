@@ -11,6 +11,7 @@ elmo = hub.Module("https://tfhub.dev/google/elmo/2", trainable=False)
 
 weight_init = tf.random_normal_initializer(mean=0.0, stddev=0.02)
 
+
 # reference,
 # https://github.com/taki0112/Self-Attention-GAN-Tensorflow
 def l2_norm(v, eps=1e-12):
@@ -103,23 +104,11 @@ class Model(object):
         self.sess.run(self.image_model.pretrained())
 
     def _build_language_network(self):
-        self.question_input = tf.placeholder(dtype=tf.string, shape=[None, ], name="question_input")
+        self.question_input = tf.placeholder(dtype=tf.string, shape=[None, QUESTION_LEN], name="question_input")
+        self.question_length = tf.placeholder(dtype=tf.int32, shape=[None, ], name="question_length")
 
-        self.question_output = elmo(self.question_input, signature="default", as_dict=True)["elmo"]
-
-        # char_embedding = tf.get_variable("char_embedding", [self.voca_size, self.embedding_size], initializer=tf.constant_initializer(pretrained_embedding))
-        # embedding = tf.nn.embedding_lookup(char_embedding, self.question_input)
-        #
-        # with tf.variable_scope("language_model"):
-        #     fw_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
-        #     bw_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
-        #
-        #     (fw_outputs, bw_outputs), states = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, embedding, dtype=tf.float32)
-        #     concated_outputs = tf.concat([fw_outputs, bw_outputs], axis=2)
-        #     flatten = tf.reshape(concated_outputs, [-1, self.hidden_size * 2 * self.max_len])
-        #
-        # with tf.variable_scope("fully_connected_layer"):
-        #     self.question_outputs = tf.layers.dense(inputs=flatten, units=196, activation=tf.nn.softmax)
+        self.question_outputs = elmo(inputs={"tokens": self.question_input, "sequence_len": self.question_length},
+                                     signature="tokens", as_dict=True)["elmo"]
 
     def attention(self, x, ch, sn=False, scope='attention', reuse=False):
         with tf.variable_scope(scope, reuse=reuse):
