@@ -24,14 +24,12 @@ def load_answer_dict():
 
 
 def convert_integer(data, dictionary):
-    print(data)
     data = pd.DataFrame(data)
 
     data.replace(dictionary, inplace=True)
 
-    data = np.array(data)
+    data = list(np.squeeze(np.array(data)))
     one_hot_data = np.eye(ANSWER_NUM)[data]
-    one_hot_data = np.squeeze(one_hot_data)
 
     return one_hot_data
 
@@ -170,13 +168,12 @@ def batch_iterator(question_dict, batch_size, shape=(224, 224)):
             images.append(image)
             questions.append(question)
             questions_length.append(question_length)
-            if answer in answer_dict:
-                answers.append(answer_dict[answer])
+            answers.append(answer)
 
         images = np.array(images)
         questions = np.array(questions)
         questions_length = np.array(questions_length)
-        one_hot_answers = np.eye(ANSWER_NUM)[answers]
+        one_hot_answers = convert_integer(answers, answer_dict)
         yield images, questions, questions_length, one_hot_answers
 
         del keys[:batch_size]
@@ -185,7 +182,7 @@ def batch_iterator(question_dict, batch_size, shape=(224, 224)):
 # question = load_question("D:/Dataset/gqa/questions1.2/train_all_questions/train_all_questions_0.json")
 # question = load_question("D:/GQA/questions1.2/train/train_all_questions_0.json")
 # batch = 64
-
+#
 # for i, q, q_l, a in batch_iterator(question, batch):
 #     print(i.shape)
 #     print(q.shape)
