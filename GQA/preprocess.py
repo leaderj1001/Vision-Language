@@ -3,13 +3,15 @@ import codecs
 import json
 from tqdm import tqdm
 import os
-import numpy as np
 from PIL import Image
+import numpy as np
 import cv2
 import pprint
 import mmh3
 import re
+import random
 from collections import Counter
+
 
 import config
 
@@ -58,56 +60,89 @@ def sentence_to_vec(sentence):
         temp[i] = x[i]
     return temp
 
+def load_question(filename):
+    questions = {}
+    with codecs.open(filename, "r", encoding="utf-8", errors="ignore") as f:
+        data = json.load(f)
+        for line in tqdm(data):
+            question = data[line]
+            questions[line] = [question['answer'], question['imageId'], question['question']]
 
-def load_question():
+    return questions
+
+def load_all_question():
     train_filenames, test_filenames = get_filename()
 
     train_question = {}
     for index, train_filename in tqdm(enumerate(train_filenames), mininterval=1, desc="load train question"):
-        with codecs.open(train_filename, "r", encoding="utf-8", errors="ignore") as f:
-            train_data = json.load(f)
-            for line in train_data:
-                train_question[line] = [train_data[line]["answer"], train_data[line]["imageId"], train_data[line]["question"]]
+        train_question.update(load_question(train_filename))
 
     test_question = {}
-    for test_filename in tqdm(test_filenames, mininterval=1, desc="load test question"):
-        with codecs.open(test_filename, "r", encoding="utf-8", errors="ignore") as f:
-            test_data = json.load(f)
-            for line in test_data:
-                test_question[line] = [test_data[line]["answer"], test_data[line]["imageId"], test_data[line]["question"]]
+    for index, test_filename in tqdm(enumerate(test_filenames), mininterval=1, desc="load test question"):
+        test_question.update(load_question(test_filename))
 
     return train_question, test_question
 
+# def load_data():
+#     train = []
+#     test = []
+#
+#     image_data_dict = get_image_filename()
+#     train_question, test_question = load_question()
+#
+#     for tq in tqdm(train_question, mininterval=1, desc="load train data (image, question, ground truth)"):
+#         image = read_image(image_data_dict[tq[1]])
+#         train.append([image, sentence_to_vec(tq[2]), tq[0]])
+#
+#     for teq in tqdm(test_question, mininterval=1, desc="load test data (image, question, ground truth)"):
+#         image = read_image(image_data_dict[teq[1]])
+#         train.append([image, sentence_to_vec(teq[2]), teq[0]])
+#
+#     shuffled_train = np.random.shuffle(train)
+#     shuffled_test = np.random.shuffle(test)
+#
+#     train_x = shuffled_train[:2]
+#     train_y = shuffled_train[2]
+#
+#     test_x = shuffled_test[:2]
+#     test_y = shuffled_test[2]
+#
+#     return train_x, train_y, test_x, test_y
 
-def load_data():
-    train = []
-    test = []
+def batch_iterator(question_dict, batch_size, shape=(224, 224)):
+    keys = list(question_dict.keys())
+    random.shuffle(keys)
+    while len(keys) != 0:
+        batch_keys = keys[:batch_size]
 
-    image_data_dict = get_image_filename()
-    train_question, test_question = load_question()
+        images = []
+        questions = []
+        answers = []
 
-    for tq in tqdm(train_question, mininterval=1, desc="load test data (image, question, ground truth)"):
-        print(tq, train_question[tq], train_question[tq][0], train_question[tq][1], train_question[tq][2])
-        image = read_image(image_data_dict[train_question[tq][1]])
-        vectorized_sentence = sentence_to_vec(train_question[tq][2])
-        train.append([image, vectorized_sentence, train_question[tq][0]])
+        for key in batch_keys:
+            q_dict = question_dict[key]
 
-    for teq in tqdm(test_question, mininterval=1, desc="load test data (image, question, ground truth)"):
-        print(teq, test_question[teq], test_question[teq][0], test_question[teq][1], test_question[teq][2])
-        image = read_image(image_data_dict[test_question[teq][1]])
-        vectorized_sentence = sentence_to_vec(test_question[teq][2])
-        test.append([image, vectorized_sentence, test_question[teq][0]])
+            # image = np.array(Image.open(args.image_path + '/' + q_dict[1] + '.jpg').resize(shape))
+            image = cv2.imread(args.image_path + '/' + q_dict[1] + '.jpg')
+            image = cv2.resize(image, shape)
+            question = q_dict[2]
+            answer = q_dict[0]
 
-    np.random.shuffle(train)
-    np.random.shuffle(test)
+            images.append(image)
+            questions.append(question)
+            answers.append(answer)
 
-    shuffled_train = np.array(train)
-    shuffled_test = np.array(test)
+        images = np.array(images)
+        questions = np.array(questions)
+        answers = np.array(answers)
+        yield images, questions, answers
 
-    train_x = np.array(shuffled_train[:2])
-    train_y = np.array(shuffled_train[0][2])
+        del keys[:batch_size]
 
-    test_x = np.array(shuffled_test[:2])
-    test_y = np.array(shuffled_test[0][2])
+question = load_question("D:/Dataset/gqa/questions1.2/train_all_questions/train_all_questions_0.json")
+batch = 64
 
-    return train_x, train_y, test_x, test_y
+for i, q, a in batch_iterator(question, batch):
+    print(i.shape)
+    print(q)
+    print(a)
