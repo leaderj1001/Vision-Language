@@ -2,19 +2,37 @@ import glob
 import codecs
 import json
 from tqdm import tqdm
-import os
 from PIL import Image
 import numpy as np
 import cv2
-import pprint
 import mmh3
 import re
 import random
-from collections import Counter
-
+import pandas as pd
+import os
 
 import config
 
+
+def load_answer_dict():
+    with open("./answer_dict.json", "r") as f:
+        load_dict = json.load(f)
+
+    return load_dict
+
+
+def convert_integer(data, dictionary):
+    data = pd.DataFrame(data)
+
+    data.replace(dictionary, inplace=True)
+
+    data = np.array(data)
+    data = np.squeeze(data)
+
+    return data
+
+
+answer_dict = load_answer_dict()
 args = config.get_args()
 re_sc = re.compile('[\!@#$%\^&\*\(\)-=\[\]\{\}\.,/\?~\+\'"|]')
 
@@ -44,21 +62,35 @@ def read_image(path):
     return resized_image
 
 
-def sentence_to_vec(sentence):
+# def sentence_to_vec(sentence):
+#     sub_sentence = re_sc.sub(' ', sentence).strip().split()
+#
+#     words = [w.strip() for w in sub_sentence]
+#
+#     words = [w for w in words if len(w) >= args.min_word_length and len(w) <= args.max_word_length]
+#     if not words:
+#         return [None] * 2
+#     hash_func = lambda x: mmh3.hash(x, seed=17)
+#     x = [hash_func(w) % 100001 for w in words]
+#     temp = np.zeros(args.max_len, dtype=np.float32)
+#
+#     for i in range(len(x)):
+#         temp[i] = x[i]
+#     return temp
+
+
+def sentence_padding(sentence):
     sub_sentence = re_sc.sub(' ', sentence).strip().split()
 
     words = [w.strip() for w in sub_sentence]
 
     words = [w for w in words if len(w) >= args.min_word_length and len(w) <= args.max_word_length]
-    if not words:
-        return [None] * 2
-    hash_func = lambda x: mmh3.hash(x, seed=17)
-    x = [hash_func(w) % 100001 for w in words]
-    temp = np.zeros(args.max_len, dtype=np.float32)
+    init_length = len(words)
 
-    for i in range(len(x)):
-        temp[i] = x[i]
-    return temp
+    for _ in range(init_length, args.max_len):
+        words.append("")
+    return words, init_length
+
 
 def load_question(filename):
     questions = {}
@@ -69,6 +101,7 @@ def load_question(filename):
             questions[line] = [question['answer'], question['imageId'], question['question']]
 
     return questions
+
 
 def load_all_question():
     train_filenames, test_filenames = get_filename()
@@ -82,6 +115,7 @@ def load_all_question():
         test_question.update(load_question(test_filename))
 
     return train_question, test_question
+
 
 # def load_data():
 #     train = []
@@ -117,6 +151,7 @@ def batch_iterator(question_dict, batch_size, shape=(224, 224)):
 
         images = []
         questions = []
+        questions_length = []
         answers = []
 
         for key in batch_keys:
@@ -124,25 +159,29 @@ def batch_iterator(question_dict, batch_size, shape=(224, 224)):
 
             # image = np.array(Image.open(args.image_path + '/' + q_dict[1] + '.jpg').resize(shape))
             image = cv2.imread(args.image_path + '/' + q_dict[1] + '.jpg')
-            image = cv2.resize(image, shape)
-            question = q_dict[2]
+            image = cv2.resize(image, dsize=shape)
+            question, question_length = sentence_padding(q_dict[2])
             answer = q_dict[0]
 
             images.append(image)
             questions.append(question)
+            questions_length.append(question_length)
             answers.append(answer)
 
         images = np.array(images)
         questions = np.array(questions)
+        questions_length = np.array(questions_length)
         answers = np.array(answers)
-        yield images, questions, answers
+        yield images, questions, questions_length, answers
 
         del keys[:batch_size]
+
 
 question = load_question("D:/Dataset/gqa/questions1.2/train_all_questions/train_all_questions_0.json")
 batch = 64
 
-for i, q, a in batch_iterator(question, batch):
+for i, q, q_l, a in batch_iterator(question, batch):
     print(i.shape)
-    print(q)
-    print(a)
+    print(q.shape)
+    print(q_l.shape)
+    print(convert_integer(a, answer_dict))
