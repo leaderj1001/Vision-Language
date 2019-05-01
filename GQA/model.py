@@ -2,17 +2,80 @@ import tensorflow as tf
 import numpy as np
 
 import tensornets as nets
+import tensorflow_hub as hub
+elmo = hub.Module("https://tfhub.dev/google/elmo/2", trainable=False)
+
+weight_init = tf.random_normal_initializer(mean=0.0, stddev=0.02)
+
+
+# reference,
+# https://github.com/taki0112/Self-Attention-GAN-Tensorflow
+def l2_norm(v, eps=1e-12):
+    return v / (tf.reduce_sum(v ** 2) ** 0.5 + eps)
+
+
+def hw_flatten(x):
+    return tf.reshape(x, shape=[-1, x.shape[1] * x.shape[2], x.shape[-1]])
+
+
+def spectral_norm(w, iteration=1):
+    w_shape = w.shape.as_list()
+    w = tf.reshape(w, [-1, w_shape[-1]])
+
+    u = tf.get_variable("u", [1, w_shape[-1]], initializer=tf.truncated_normal_initializer(), trainable=False)
+
+    u_hat = u
+    v_hat = None
+    for i in range(iteration):
+        """
+        power iteration
+        Usually iteration = 1 will be enough
+        """
+        v_ = tf.matmul(u_hat, tf.transpose(w))
+        v_hat = l2_norm(v_)
+
+        u_ = tf.matmul(v_hat, w)
+        u_hat = l2_norm(u_)
+
+    sigma = tf.matmul(tf.matmul(v_hat, w), tf.transpose(u_hat))
+    w_norm = w / sigma
+
+    with tf.control_dependencies([u.assign(u_hat)]):
+        w_norm = tf.reshape(w_norm, w_shape)
+
+    return w_norm
+
+
+def conv(x, channels, kernel=4, stride=2, pad=0, pad_type='zero', use_bias=True, sn=False, scope='conv_0'):
+    with tf.variable_scope(scope):
+        if pad_type == 'zero':
+            x = tf.pad(x, [[0, 0], [pad, pad], [pad, pad], [0, 0]])
+        if pad_type == 'reflect':
+            x = tf.pad(x, [[0, 0], [pad, pad], [pad, pad], [0, 0]], mode='REFLECT')
+
+        if sn:
+            w = tf.get_variable("kernel", shape=[kernel, kernel, x.get_shape()[-1], channels], initializer=weight_init,
+                                regularizer=None)
+            x = tf.nn.conv2d(input=x, filter=spectral_norm(w),
+                             strides=[1, stride, stride, 1], padding='VALID')
+            if use_bias:
+                bias = tf.get_variable("bias", [channels], initializer=tf.constant_initializer(0.0))
+                x = tf.nn.bias_add(x, bias)
+
+        else:
+            x = tf.layers.conv2d(inputs=x, filters=channels, kernel_size=kernel,
+                                 kernel_initializer=weight_init,
+                                 kernel_regularizer=None,
+                                 strides=stride, use_bias=use_bias)
+
+        return x
 
 
 class Model(object):
-    def __init__(self, sess, input_size, max_len, voca_size, embedding_size):
+    def __init__(self, sess, input_size, image_pretrained):
         self.sess = sess
         self.input_size = input_size
-
-        self.max_len = max_len
-        self.voca_size = voca_size
-        self.embedding_size = embedding_size
-        self.hidden_size = 256
+        self.image_pretrained = image_pretrained
 
         self.weights_init = tf.contrib.layers.xavier_initializer()
 
@@ -21,22 +84,52 @@ class Model(object):
 
     def _build_image_network(self):
         self.image_inputs = tf.placeholder(dtype=tf.float32, shape=[None, self.input_size[0], self.input_size[1], self.input_size[2]], name="image_inputs")
-        self.image_model = nets.resnets.resnet50(self.image_inputs)
+        if self.image_pretrained == "resnet":
+            self.image_model = nets.resnets.resnet50(self.image_inputs)
+        elif self.image_pretrained == "densenet":
+            self.image_model = nets.densenets.densenet121(self.image_inputs)
         self.sess.run(self.image_model.pretrained())
 
+        self.image_outputs = self.image_model.get_middles()
+        for img_output in self.image_outputs:
+            print(img_output.shape)
+
+        self.attention_outputs = self.attention(self.image_outputs[-1], ch=2048)
+
     def _build_language_network(self):
-        self.question_inputs = tf.placeholder(dtype=tf.float32, shape=[None, self.max_len], name="question_inputs")
+        self.question_inputs = tf.placeholder(dtype=tf.string, shape=[None, ], name="question_inputs")
 
-        char_embedding = tf.get_variable("char_embedding", [self.voca_size, self.embedding_size])
-        embedding = tf.nn.embedding_lookup(char_embedding, self.question_inputs)
+        self.question_outputs = elmo(self.question_inputs, signature="default", as_dict=True)["elmo"]
 
-        with tf.variable_scope("language_model"):
-            fw_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
-            bw_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
+        # char_embedding = tf.get_variable("char_embedding", [self.voca_size, self.embedding_size], initializer=tf.constant_initializer(pretrained_embedding))
+        # embedding = tf.nn.embedding_lookup(char_embedding, self.question_inputs)
+        #
+        # with tf.variable_scope("language_model"):
+        #     fw_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
+        #     bw_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
+        #
+        #     (fw_outputs, bw_outputs), states = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, embedding, dtype=tf.float32)
+        #     concated_outputs = tf.concat([fw_outputs, bw_outputs], axis=2)
+        #     flatten = tf.reshape(concated_outputs, [-1, self.hidden_size * 2 * self.max_len])
+        #
+        # with tf.variable_scope("fully_connected_layer"):
+        #     self.question_outputs = tf.layers.dense(inputs=flatten, units=196, activation=tf.nn.softmax)
 
-            (fw_outputs, bw_outputs), states = tf.nn.bidirectional_dynamic_rnn(fw_cell, bw_cell, embedding, dtype=tf.float32)
-            concated_outputs = tf.concat([fw_outputs, bw_outputs], axis=2)
-            flatten = tf.reshape(concated_outputs, [-1, self.hidden_size * 2 * self.max_len])
+    def attention(self, x, ch, sn=False, scope='attention', reuse=False):
+        with tf.variable_scope(scope, reuse=reuse):
+            f = conv(x, ch // 8, kernel=1, stride=1, sn=sn, scope='f_conv')  # [bs, h, w, c']
+            g = conv(x, ch // 8, kernel=1, stride=1, sn=sn, scope='g_conv')  # [bs, h, w, c']
+            h = conv(x, ch, kernel=1, stride=1, sn=sn, scope='h_conv')  # [bs, h, w, c]
 
-        with tf.variable_scope("fully_connected_layer"):
-            self.question_outputs = tf.layers.dense(inputs=flatten, units=196, activation=tf.nn.softmax)
+            # N = h * w
+            s = tf.matmul(hw_flatten(g), hw_flatten(f), transpose_b=True)  # # [bs, N, N]
+
+            beta = tf.nn.softmax(s)  # attention map
+
+            o = tf.matmul(beta, hw_flatten(h))  # [bs, N, C]
+            gamma = tf.get_variable("gamma", [1], initializer=tf.constant_initializer(0.0))
+
+            o = tf.reshape(o, shape=[-1, x.shape[1], x.shape[2], x.shape[3]])  # [bs, h, w, C]
+            x = gamma * o + x
+
+        return x
