@@ -13,6 +13,8 @@ import os
 
 import config
 
+ANSWER_NUM = 1852
+
 
 def load_answer_dict():
     with open("./answer_dict.json", "r") as f:
@@ -22,14 +24,16 @@ def load_answer_dict():
 
 
 def convert_integer(data, dictionary):
+    print(data)
     data = pd.DataFrame(data)
 
     data.replace(dictionary, inplace=True)
 
     data = np.array(data)
-    data = np.squeeze(data)
+    one_hot_data = np.eye(ANSWER_NUM)[data]
+    one_hot_data = np.squeeze(one_hot_data)
 
-    return data
+    return one_hot_data
 
 
 answer_dict = load_answer_dict()
@@ -166,22 +170,24 @@ def batch_iterator(question_dict, batch_size, shape=(224, 224)):
             images.append(image)
             questions.append(question)
             questions_length.append(question_length)
-            answers.append(answer)
+            if answer in answer_dict:
+                answers.append(answer_dict[answer])
 
         images = np.array(images)
         questions = np.array(questions)
         questions_length = np.array(questions_length)
-        answers = np.array(answers)
-        yield images, questions, questions_length, answers
+        one_hot_answers = np.eye(ANSWER_NUM)[answers]
+        yield images, questions, questions_length, one_hot_answers
 
         del keys[:batch_size]
 
 
-question = load_question("D:/Dataset/gqa/questions1.2/train_all_questions/train_all_questions_0.json")
-batch = 64
+# question = load_question("D:/Dataset/gqa/questions1.2/train_all_questions/train_all_questions_0.json")
+# question = load_question("D:/GQA/questions1.2/train/train_all_questions_0.json")
+# batch = 64
 
-for i, q, q_l, a in batch_iterator(question, batch):
-    print(i.shape)
-    print(q.shape)
-    print(q_l.shape)
-    print(convert_integer(a, answer_dict))
+# for i, q, q_l, a in batch_iterator(question, batch):
+#     print(i.shape)
+#     print(q.shape)
+#     print(q_l.shape)
+#     print(a)

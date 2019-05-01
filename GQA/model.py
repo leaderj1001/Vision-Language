@@ -107,7 +107,7 @@ class Model(object):
         self.question_input = tf.placeholder(dtype=tf.string, shape=[None, QUESTION_LEN], name="question_input")
         self.question_length = tf.placeholder(dtype=tf.int32, shape=[None, ], name="question_length")
 
-        self.question_outputs = elmo(inputs={"tokens": self.question_input, "sequence_len": self.question_length},
+        self.question_output = elmo(inputs={"tokens": self.question_input, "sequence_len": self.question_length},
                                      signature="tokens", as_dict=True)["elmo"]
 
     def attention(self, x, ch, sn=False, scope='attention', reuse=False):
@@ -130,6 +130,8 @@ class Model(object):
         return x
 
     def _build_model(self):
+        self.target = tf.placeholder(dtype=tf.int32, shape=[None, ANSWER_NUM], name="target")
+
         # question feature
         question_feature = self.question_output
         question_feature = tf.expand_dims(question_feature, 2)
@@ -150,3 +152,7 @@ class Model(object):
         question_image_feature = tf.reduce_mean(question_image_feature, axis=[1, 2])
 
         self.answer_vec = tf.layers.dense(question_image_feature, ANSWER_NUM)
+        self.y_pred = tf.nn.softmax(self.answer_vec)
+
+        self.loss = tf.losses.softmax_cross_entropy(self.target, self.answer_vec)
+        self.train = tf.train.AdamOptimizer(learning_rate=0.0001).minimize(self.loss)
