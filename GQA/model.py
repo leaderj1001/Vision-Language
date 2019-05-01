@@ -3,10 +3,13 @@ import numpy as np
 
 import tensornets as nets
 import tensorflow_hub as hub
+
+QUESTION_LEN = 32
+ANSWER_NUM = 1852
+
 elmo = hub.Module("https://tfhub.dev/google/elmo/2", trainable=False)
 
 weight_init = tf.random_normal_initializer(mean=0.0, stddev=0.02)
-
 
 # reference,
 # https://github.com/taki0112/Self-Attention-GAN-Tensorflow
@@ -81,28 +84,31 @@ class Model(object):
 
         self._build_image_network()
         self._build_language_network()
+        self._build_model()
 
     def _build_image_network(self):
-        self.image_inputs = tf.placeholder(dtype=tf.float32, shape=[None, self.input_size[0], self.input_size[1], self.input_size[2]], name="image_inputs")
+        self.image_input = tf.placeholder(dtype=tf.float32, shape=[None, self.input_size[0], self.input_size[1], self.input_size[2]], name="image_input")
         if self.image_pretrained == "resnet":
-            self.image_model = nets.resnets.resnet50(self.image_inputs)
+            self.image_model = nets.resnets.resnet50(self.image_input)
         elif self.image_pretrained == "densenet":
-            self.image_model = nets.densenets.densenet121(self.image_inputs)
+            self.image_model = nets.densenets.densenet121(self.image_input)
+
+        self.image_output = self.image_model.get_middles()[-1]
+        # for img_output in self.image_outputs:
+        #     print(img_output.shape)
+
+        # self.attention_output = self.attention(self.image_output, ch=1024)
+
+    def _load_model(self):
         self.sess.run(self.image_model.pretrained())
 
-        self.image_outputs = self.image_model.get_middles()
-        for img_output in self.image_outputs:
-            print(img_output.shape)
-
-        self.attention_outputs = self.attention(self.image_outputs[-1], ch=2048)
-
     def _build_language_network(self):
-        self.question_inputs = tf.placeholder(dtype=tf.string, shape=[None, ], name="question_inputs")
+        self.question_input = tf.placeholder(dtype=tf.string, shape=[None, ], name="question_input")
 
-        self.question_outputs = elmo(self.question_inputs, signature="default", as_dict=True)["elmo"]
+        self.question_output = elmo(self.question_input, signature="default", as_dict=True)["elmo"]
 
         # char_embedding = tf.get_variable("char_embedding", [self.voca_size, self.embedding_size], initializer=tf.constant_initializer(pretrained_embedding))
-        # embedding = tf.nn.embedding_lookup(char_embedding, self.question_inputs)
+        # embedding = tf.nn.embedding_lookup(char_embedding, self.question_input)
         #
         # with tf.variable_scope("language_model"):
         #     fw_cell = tf.nn.rnn_cell.BasicLSTMCell(self.hidden_size)
@@ -133,3 +139,25 @@ class Model(object):
             x = gamma * o + x
 
         return x
+
+    def _build_model(self):
+        # question feature
+        question_feature = self.question_output
+        question_feature = tf.expand_dims(question_feature, 2)
+        question_feature = tf.expand_dims(question_feature, 2)
+
+        # image feature
+        image_feature = self.image_output
+        image_feature = tf.expand_dims(image_feature, 1)
+
+        # question image feature aggregation
+        token_weight = tf.get_variable('token_weight', shape=[1, QUESTION_LEN, 7, 7, 1], dtype=tf.float32, trainable=True)
+        question_image_feature = tf.math.multiply(question_feature, image_feature)
+        question_image_feature = tf.math.multiply(question_image_feature, token_weight)
+        question_image_feature = tf.reduce_mean(question_image_feature, axis=1)
+
+        # attention
+        question_image_feature = self.attention(question_image_feature, ch=1024)
+        question_image_feature = tf.reduce_mean(question_image_feature, axis=[1, 2])
+
+        self.answer_vec = tf.layers.dense(question_image_feature, ANSWER_NUM)
