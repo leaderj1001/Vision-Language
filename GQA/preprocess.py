@@ -194,6 +194,43 @@ def batch_iterator(question_dict, batch_size, shape=(224, 224)):
 
         del keys[:batch_size]
 
+def _get_next(question_dict):
+    keys = list(question_dict.keys())
+    random.shuffle(keys)
+    while len(keys) != 0:
+        key = random.choice(keys)
+        q_dict = question_dict[key]
+
+        image_dir = args.image_path + '/' + q_dict[1] + '.jpg'
+        question, question_length = sentence_padding(q_dict[2])
+        answer = _convert_integer(q_dict[0], answer_dict)
+        yield {'image': image_dir, 'question': question, 'question_length':question_length, 'answer': answer}
+        del keys[keys.index(key)]
+
+def _map_data(next_sample):
+    shape = (224, 224)
+    image_dir = next_sample['image']
+
+    image_file = tf.read_file(image_dir)
+    image = tf.image.decode_image(image_file, channels=3)
+
+    image.set_shape([None, None, 3])
+    image_resized = tf.image.resize_images(image, shape)
+    image_resized = tf.cast(image_resized, dtype=tf.uint8)
+    next_sample['image'] = image_resized
+
+    return next_sample
+
+def build_iterator(batch_size, prefetch_size, question_dict):
+    generator = lambda: _get_next(question_dict)
+    dataset = tf.data.Dataset.from_generator(generator, output_types={'image': tf.string, 'question': tf.string , 'question_length': tf.int32, 'answer': tf.float32})
+    dataset = dataset.map(_map_data)
+    dataset = dataset.batch(batch_size)
+    dataset = dataset.prefetch(prefetch_size)
+    iterator = dataset.make_initializable_iterator()
+    next_sample = iterator.get_next()
+
+    return iterator, next_sample
 
 # question = load_question("D:/Dataset/gqa/questions1.2/train_all_questions/train_all_questions_0.json")
 # question = load_question("D:/GQA/questions1.2/train/train_all_questions_0.json")
