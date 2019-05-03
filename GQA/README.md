@@ -26,7 +26,7 @@
         ├── semantic
         └── structural
 ```
-- answer, groundtruth
+- answer
 - imageId
 - question
 
