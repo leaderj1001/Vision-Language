@@ -5,11 +5,13 @@ from tqdm import tqdm
 from PIL import Image
 import numpy as np
 import cv2
-import mmh3
 import re
 import random
 import pandas as pd
 import os
+import pickle
+import tensorflow as tf
+from GQA.util.BGenerator import background_generator
 
 import config
 
@@ -32,6 +34,13 @@ def convert_integer(data, dictionary):
     one_hot_data = np.eye(ANSWER_NUM)[data]
 
     return one_hot_data
+
+def _convert_integer(data, dictionary):
+    idx = dictionary[data]
+    one_hot_data = np.eye(ANSWER_NUM)[idx-1]
+
+    return one_hot_data
+
 
 
 answer_dict = load_answer_dict()
@@ -161,6 +170,7 @@ def load_all_question():
 #
 #     return train_x, train_y, test_x, test_y
 
+@background_generator(10)
 def batch_iterator(question_dict, batch_size, shape=(224, 224)):
     keys = list(question_dict.keys())
     random.shuffle(keys)
