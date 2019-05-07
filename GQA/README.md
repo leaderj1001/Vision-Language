@@ -31,7 +31,10 @@
 - question
 
 ## Network Architecture
-![model](https://user-images.githubusercontent.com/22078438/57022053-eb349080-6c68-11e9-85a9-293ea120a1bd.PNG)
+![캡처](https://user-images.githubusercontent.com/22078438/57274898-a0d36980-70d7-11e9-9313-4f2ea346c36b.PNG)
+
+## Image-Question Aggregator
+![캡처2](https://user-images.githubusercontent.com/22078438/57274900-a2049680-70d7-11e9-9227-7add587addd4.PNG)
 
 - Image Pretrained
   - [Tensornets github](https://github.com/taehoonlee/tensornets)
