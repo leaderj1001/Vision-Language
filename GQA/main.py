@@ -28,6 +28,7 @@ def main(args):
             saver.restore(sess, tf.train.latest_checkpoint(args.checkpoint_dir))
             print('checkpoint restored. train from checkpoint')
         except:
+            model._load_model()
             print('failed to load checkpoint. train from the beginning')
 
         # start_time = time.time()
