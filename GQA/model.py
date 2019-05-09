@@ -3,12 +3,10 @@ import numpy as np
 
 import tensornets as nets
 import tensorflow_hub as hub
+from config import get_args
 
-QUESTION_LEN = 32
-ANSWER_NUM = 1852
-
-elmo = hub.Module("https://tfhub.dev/google/elmo/2", trainable=False)
-
+args = get_args()
+elmo = hub.Module("https://tfhub.dev/google/elmo/2", trainable=True)
 weight_init = tf.random_normal_initializer(mean=0.0, stddev=0.02)
 
 
@@ -76,13 +74,18 @@ def conv(x, channels, kernel=4, stride=2, pad=0, pad_type='zero', use_bias=True,
 
 
 class Model(object):
-    def __init__(self, sess, input_size, image_pretrained):
+    def __init__(self, sess, input_size, image_pretrained, dataset_num=0):
         self.sess = sess
         self.input_size = input_size
         self.image_pretrained = image_pretrained
-
+        self.is_training = False
+        self.global_step = tf.get_variable(name='global_step', shape=[], dtype='int64', trainable=False)
+        self.steps_per_epoch = round(dataset_num / args.batch_size)
+        self.learning_rate = tf.train.piecewise_constant(self.global_step, [round(self.steps_per_epoch * 0.5 * args.epochs),
+                                                              round(self.steps_per_epoch * 0.75 * args.epochs)],
+                                                [args.learning_rate, 0.1 * args.learning_rate,
+                                                 0.01 * args.learning_rate])
         self.weights_init = tf.contrib.layers.xavier_initializer()
-
         self._build_image_network()
         self._build_language_network()
         self._build_model()
@@ -90,21 +93,17 @@ class Model(object):
     def _build_image_network(self):
         self.image_input = tf.placeholder(dtype=tf.float32, shape=[None, self.input_size[0], self.input_size[1], self.input_size[2]], name="image_input")
         if self.image_pretrained == "resnet":
-            self.image_model = nets.resnets.resnet50(self.image_input)
+            self.image_model = nets.resnets.resnet50(self.image_input, self.is_training)
         elif self.image_pretrained == "densenet":
-            self.image_model = nets.densenets.densenet121(self.image_input)
+            self.image_model = nets.densenets.densenet121(self.image_input, self.is_training)
 
         self.image_output = self.image_model.get_middles()[-1]
-        # for img_output in self.image_outputs:
-        #     print(img_output.shape)
-
-        # self.attention_output = self.attention(self.image_output, ch=1024)
 
     def _load_model(self):
         self.sess.run(self.image_model.pretrained())
 
     def _build_language_network(self):
-        self.question_input = tf.placeholder(dtype=tf.string, shape=[None, QUESTION_LEN], name="question_input")
+        self.question_input = tf.placeholder(dtype=tf.string, shape=[None, args.max_len], name="question_input")
         self.question_length = tf.placeholder(dtype=tf.int32, shape=[None, ], name="question_length")
 
         self.question_output = elmo(inputs={"tokens": self.question_input, "sequence_len": self.question_length},
@@ -130,7 +129,7 @@ class Model(object):
         return x
 
     def _build_model(self):
-        self.target = tf.placeholder(dtype=tf.int32, shape=[None, ANSWER_NUM], name="target")
+        self.target = tf.placeholder(dtype=tf.int32, shape=[None, args.num_classes], name="target")
 
         # question feature
         question_feature = self.question_output
@@ -142,7 +141,7 @@ class Model(object):
         image_feature = tf.expand_dims(image_feature, 1)
 
         # question image feature aggregation
-        token_weight = tf.get_variable('token_weight', shape=[1, QUESTION_LEN, 7, 7, 1], dtype=tf.float32, trainable=True)
+        token_weight = tf.get_variable('token_weight', shape=[1, args.max_len, 7, 7, 1], dtype=tf.float32, trainable=True)
         question_image_feature = tf.math.multiply(question_feature, image_feature)
         question_image_feature = tf.math.multiply(question_image_feature, token_weight)
         question_image_feature = tf.reduce_mean(question_image_feature, axis=1)
@@ -151,8 +150,22 @@ class Model(object):
         question_image_feature = self.attention(question_image_feature, ch=1024)
         question_image_feature = tf.reduce_mean(question_image_feature, axis=[1, 2])
 
-        self.answer_vec = tf.layers.dense(question_image_feature, ANSWER_NUM)
-        self.y_pred = tf.nn.softmax(self.answer_vec)
+        self.answer_vec = tf.layers.dense(question_image_feature, args.num_classes)
 
-        self.loss = tf.losses.softmax_cross_entropy(self.target, self.answer_vec)
-        self.train = tf.train.AdamOptimizer(learning_rate=0.0001).minimize(self.loss)
+        with tf.variable_scope("loss"):
+            self.loss = tf.losses.softmax_cross_entropy(self.target, self.answer_vec)
+            self.loss = tf.reduce_mean(self.loss, name="loss")
+
+        with tf.variable_scope("optimizers"):
+            self.train_op = tf.train.AdamOptimizer(learning_rate=args.learning_rate).minimize(self.loss, global_step=self.global_step)
+
+        self.train_loss_summary = tf.summary.scalar("train_loss", self.loss)
+        self.test_loss_summary = tf.summary.scalar("test_loss", self.loss)
+
+        with tf.variable_scope("accuracy"):
+            softmax_output = tf.nn.softmax(self.answer_vec)
+            y_pred = tf.equal(tf.argmax(softmax_output, 1), tf.argmax(self.target, 1), name="y_pred")
+            self.accuracy = tf.reduce_mean(tf.cast(y_pred, tf.float32), name="accuracy")
+
+        self.train_acc_summary = tf.summary.scalar("train_acc", self.accuracy)
+        self.test_acc_summary = tf.summary.scalar("test_acc", self.accuracy)
