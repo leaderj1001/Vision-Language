@@ -12,14 +12,15 @@ from config import get_args
 
 
 def main(args):
-#     os.environ['CUDA_VISIBLE_DEVICES'] = "1"
+    os.environ['CUDA_VISIBLE_DEVICES'] = "0"
     with tf.Session() as sess:
         merged = tf.summary.merge_all()
         if not os.path.isdir('reporting'):
             os.mkdir('reporting')
         writer = tf.summary.FileWriter('./reporting', sess.graph)
+        train_questions, test_questions = load_all_question()
 
-        model = Model(sess, [224, 224, 3], image_pretrained="densenet")
+        model = Model(sess, [224, 224, 3], "densenet", len(train_questions))
         saver = tf.train.Saver()
         sess.run(tf.global_variables_initializer())
 
@@ -27,9 +28,9 @@ def main(args):
             saver.restore(sess, tf.train.latest_checkpoint(args.checkpoint_dir))
             print('checkpoint restored. train from checkpoint')
         except:
+            model._load_model()
             print('failed to load checkpoint. train from the beginning')
 
-        train_questions, test_questions = load_all_question()
         # start_time = time.time()
         for epoch in range(1, args.epochs):
             for batch_image, batch_question, batch_question_length, batch_answer in batch_iterator(train_questions, args.batch_size):

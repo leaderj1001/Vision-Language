@@ -11,7 +11,7 @@ import pandas as pd
 import os
 import pickle
 import tensorflow as tf
-from GQA.util.BGenerator import background_generator
+from util.BGenerator import background_generator
 
 import config
 
@@ -31,6 +31,8 @@ def convert_integer(data, dictionary):
     data.replace(dictionary, inplace=True)
 
     data = list(np.squeeze(np.array(data)))
+    data = [0 if type(i)==str else i for i in data]
+
     one_hot_data = np.eye(ANSWER_NUM)[data]
 
     return one_hot_data
